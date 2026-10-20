@@ -5,9 +5,9 @@ const http = require('node:http');
 const { Server } = require('socket.io');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const db = require('./src/db');
+const db = require('./src/db/index.js');
 const { passwordHash, verifyPassword } = require('./src/passwords');
-const { runMigrations } = require('./src/db/migrate');
+const { runMigrations } = require('./src/db/migrate.js');
 
 const app = express();
 const server = http.createServer(app);
