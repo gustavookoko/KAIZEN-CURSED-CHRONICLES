@@ -25,7 +25,19 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'same-origin');
   next();
 });
-app.use(express.static(path.join(__dirname, 'public')));
+const PUBLIC_DIR = path.join(__dirname, 'public');
+// Declare the root route explicitly so deployment/start-directory differences do not
+// leave the application responding with Express' default "Cannot GET /" message.
+app.get('/', (_req, res) => {
+  const indexPath = path.join(PUBLIC_DIR, 'index.html');
+  if (!fs.existsSync(indexPath)) {
+    return res.status(500).type('text/plain; charset=utf-8').send(
+      'Erro de configuração: public/index.html não foi encontrado. Confira o diretório publicado e o comando de inicialização.'
+    );
+  }
+  return res.sendFile(indexPath);
+});
+app.use(express.static(PUBLIC_DIR));
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'kaizen-online' }));
 app.get('/api/status', (_req, res) => res.json({ online: true, rooms: rooms.size }));
 
@@ -116,7 +128,9 @@ function dailyReward(id, progress) {
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { username, password } = req.body || {};
+    const body = req.body || {};
+    const username = typeof body.username === 'string' ? body.username.trim() : body.username;
+    const password = body.password;
     if (!validUsername(username)) return res.status(400).json({ error: 'O usuário deve ter 3 a 20 caracteres: letras sem acento, números, _ ou -.' });
     if (!validPassword(password)) return res.status(400).json({ error: 'A senha deve ter entre 8 e 128 caracteres.' });
     const key = username.toLowerCase();
@@ -136,7 +150,9 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 app.post('/api/auth/login', (req, res) => {
-  const { username, password } = req.body || {};
+  const body = req.body || {};
+  const username = typeof body.username === 'string' ? body.username.trim() : body.username;
+  const password = body.password;
   if (typeof username !== 'string' || typeof password !== 'string') return res.status(400).json({ error: 'Informe usuário e senha.' });
   const key = username.toLowerCase();
   const account = store.accounts[key];
