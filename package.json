@@ -1,0 +1,20 @@
+{
+  "name": "kaizen-cursed-chronicles-online",
+  "version": "1.2.0",
+  "private": true,
+  "description": "Kaizen: Cursed Chronicles com contas e progresso persistidos em PostgreSQL",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "db:migrate": "node src/db/migrate.js",
+    "migrate:json-to-postgres": "node scripts/migrate-json-to-postgres.js",
+    "test": "node --test",
+    "check": "node --check server.js && node --check src/passwords.js && node --check src/db/index.js && node --check src/db/migrate.js && node --check scripts/migrate-json-to-postgres.js"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "express": "^4.21.2",
+    "pg": "^8.16.3",
+    "socket.io": "^4.8.1"
+  }
+}
