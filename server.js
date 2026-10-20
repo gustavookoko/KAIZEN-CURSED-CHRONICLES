@@ -225,13 +225,19 @@ function safeRoomCode() {
   do { code = Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join(''); } while (rooms.has(code));
   return code;
 }
-function roomSummary(room) { return { code: room.code, players: room.players.map(p => ({ id: p.id, name: p.name, ready: p.ready })), started: room.started }; }
+function roomSummary(room) { return { code: room.code, name: room.name, hasPassword: Boolean(room.passwordHash), players: room.players.map(p => ({ id: p.id, name: p.name, ready: p.ready, character: p.character ? { id:p.character.id, name:p.character.name, speed:p.character.speed } : null })), started: room.started }; }
+function roomList() { return [...rooms.values()].map(roomSummary); }
+function cleanCharacter(value) { if (!value || typeof value !== 'object') return null; const name=String(value.name||'').replace(/[<>\u0000-\u001f]/g,'').trim().slice(0,60); const skills=Array.isArray(value.skills)?value.skills.slice(0,8).map(sk=>({name:String(sk?.name||'Técnica').replace(/[<>\u0000-\u001f]/g,'').slice(0,60),desc:String(sk?.desc||'').replace(/[<>\u0000-\u001f]/g,'').slice(0,180),mult:Math.max(.1,Math.min(5,Number(sk?.mult)||1)),special:Boolean(sk?.special),all:Boolean(sk?.all)})):[]; if(!name||!skills.length)return null; const hp=Math.max(1,Math.min(100000,Math.floor(Number(value.maxHp||value.hp)||1))); return {id:String(value.id||'').slice(0,50),name,hp,maxHp:hp,atk:Math.max(1,Math.min(100000,Math.floor(Number(value.atk)||1))),def:Math.max(0,Math.min(100000,Math.floor(Number(value.def)||0))),crit:Math.max(0,Math.min(100,Number(value.crit)||0)),speed:Math.max(1,Math.min(10000,Math.floor(Number(value.speed)||1))),skills}; }
+function safePasswordHash(password) { return crypto.createHash('sha256').update(String(password)).digest('hex'); }
+function samePassword(password, hash) { const a=Buffer.from(safePasswordHash(password)); const b=Buffer.from(String(hash||'')); return a.length===b.length && crypto.timingSafeEqual(a,b); }
+function emitRoomList() { io.emit('room:list', { rooms: roomList() }); }
+function emitPvp(room) { if(room.match) io.to(room.code).emit('pvp:update', room.match); }
 function emitRoom(room) { io.to(room.code).emit('room:update', roomSummary(room)); }
 function leaveRoom(socket) {
   const code = socket.data.roomCode; if (!code) return;
   const room = rooms.get(code); socket.leave(code); delete socket.data.roomCode; if (!room) return;
   room.players = room.players.filter(p => p.id !== socket.id);
-  if (room.players.length === 0) rooms.delete(code); else { room.started = false; emitRoom(room); }
+  if (room.players.length === 0) rooms.delete(code); else { room.started = false; room.match = null; room.players.forEach(p=>{p.ready=false;p.character=null}); emitRoom(room); } emitRoomList(); socket.emit('room:left', {ok:true});
 }
 function cleanName(value) { const name = String(value || 'Jogador').replace(/[<>\u0000-\u001f]/g, '').trim().slice(0, 18); return name || 'Jogador'; }
 io.use(async (socket, next) => {
@@ -247,25 +253,44 @@ io.use(async (socket, next) => {
   } catch (_) { next(new Error('Autenticação temporariamente indisponível.')); }
 });
 io.on('connection', socket => {
-  socket.emit('online:welcome', { ok: true, message: 'Conectado ao servidor Kaizen.' });
+  socket.emit('online:welcome', { ok: true, message: 'Conectado ao servidor Kaizen.' }); socket.emit('room:list', { rooms: roomList() });
+  socket.on('room:list', (_payload = {}, reply = () => {}) => { const result={ok:true,rooms:roomList()}; if(typeof reply==='function')reply(result); });
   socket.on('room:create', (payload = {}, reply = () => {}) => {
-    leaveRoom(socket); const code = safeRoomCode(); const room = { code, started: false, players: [{ id: socket.id, name: cleanName(payload.name), ready: false }] };
-    rooms.set(code, room); socket.join(code); socket.data.roomCode = code; reply({ ok: true, room: roomSummary(room) }); emitRoom(room);
+    const name=String(payload.name||'').replace(/[<>\u0000-\u001f]/g,'').trim().slice(0,32);
+    const password=typeof payload.password==='string'?payload.password:'';
+    if(!name)return reply({ok:false,error:'Informe um nome para a sala.'});
+    if(password.length>128)return reply({ok:false,error:'A senha deve ter no máximo 128 caracteres.'});
+    leaveRoom(socket); const code = safeRoomCode(); const character=cleanCharacter(payload.character);
+    const room = { code, name, passwordHash:password?safePasswordHash(password):null, started:false, match:null, players:[{id:socket.id,name:cleanName(socket.data.username||payload.playerName||payload.name),ready:false,character}] };
+    rooms.set(code,room);socket.join(code);socket.data.roomCode=code;reply({ok:true,room:roomSummary(room)});emitRoom(room);emitRoomList();
   });
   socket.on('room:join', (payload = {}, reply = () => {}) => {
-    const code = String(payload.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5); const room = rooms.get(code);
-    if (!room) return reply({ ok: false, error: 'Sala não encontrada.' });
-    if (room.started) return reply({ ok: false, error: 'A partida já começou.' });
-    if (room.players.length >= 2) return reply({ ok: false, error: 'Sala cheia (máximo de 2 jogadores).' });
-    leaveRoom(socket); room.players.push({ id: socket.id, name: cleanName(payload.name), ready: false }); socket.join(code); socket.data.roomCode = code;
-    reply({ ok: true, room: roomSummary(room) }); emitRoom(room);
+    const code=String(payload.code||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,5);const room=rooms.get(code);
+    if(!room)return reply({ok:false,error:'Sala não encontrada.'});if(room.started)return reply({ok:false,error:'A partida já começou.'});if(room.players.length>=2)return reply({ok:false,error:'Sala cheia (máximo de 2 jogadores).' });
+    const password=typeof payload.password==='string'?payload.password:'';if(room.passwordHash&&!samePassword(password,room.passwordHash))return reply({ok:false,error:'Senha incorreta.'});
+    leaveRoom(socket);const character=cleanCharacter(payload.character);room.players.push({id:socket.id,name:cleanName(socket.data.username||payload.playerName||'Jogador'),ready:false,character});socket.join(code);socket.data.roomCode=code;reply({ok:true,room:roomSummary(room)});emitRoom(room);emitRoomList();
   });
   socket.on('room:ready', (payload = {}, reply = () => {}) => {
-    const room = rooms.get(socket.data.roomCode); if (!room) return reply({ ok: false, error: 'Entre em uma sala primeiro.' });
-    const player = room.players.find(p => p.id === socket.id); if (!player) return reply({ ok: false, error: 'Jogador não encontrado na sala.' });
-    player.ready = Boolean(payload.ready); emitRoom(room);
-    if (room.players.length === 2 && room.players.every(p => p.ready)) { room.started = true; io.to(room.code).emit('match:ready', { room: roomSummary(room), message: 'Os dois jogadores estão prontos. A sala está preparada para iniciar a batalha.' }); emitRoom(room); }
-    reply({ ok: true });
+    const room=rooms.get(socket.data.roomCode);if(!room)return reply({ok:false,error:'Entre em uma sala primeiro.'});if(room.started)return reply({ok:false,error:'A partida já começou.'});
+    const player=room.players.find(p=>p.id===socket.id);if(!player)return reply({ok:false,error:'Jogador não encontrado na sala.'});
+    if(payload.ready){const character=cleanCharacter(payload.character);if(!character)return reply({ok:false,error:'Selecione um personagem válido antes de ficar pronto.'});player.character=character;player.ready=true;}else{player.ready=false;room.match=null;}
+    emitRoom(room);
+    if(room.players.length===2&&room.players.every(p=>p.ready&&p.character)){
+      room.started=true;const players=room.players.map(p=>({...p,hp:p.character.maxHp,maxHp:p.character.maxHp}));
+      const first=players[0].character.speed===players[1].character.speed?(Math.random()<.5?players[0]:players[1]):players.slice().sort((a,b)=>b.character.speed-a.character.speed)[0];
+      room.match={roomCode:room.code,turn:1,turnPlayer:first.id,players,finished:false,log:[`${first.character.name} tem maior velocidade e começa atacando.`]};
+      io.to(room.code).emit('match:ready',{room:roomSummary(room),match:room.match,message:'Os dois jogadores estão prontos. O personagem mais rápido começa.'});emitPvp(room);emitRoomList();
+    }
+    reply({ok:true});
+  });
+  socket.on('pvp:action',(payload={},reply=()=>{})=>{
+    const room=rooms.get(socket.data.roomCode),match=room&&room.match;if(!room||!room.started||!match||match.finished)return reply({ok:false,error:'Não existe um combate ativo.'});
+    if(match.turnPlayer!==socket.id)return reply({ok:false,error:'Ainda não é seu turno.'});
+    const actor=match.players.find(p=>p.id===socket.id),target=match.players.find(p=>p.id!==socket.id);const index=Math.floor(Number(payload.skillIndex));const skill=actor?.character?.skills?.[index];
+    if(!actor||!target||!skill||actor.hp<=0||target.hp<=0)return reply({ok:false,error:'Ação ou personagem inválido.'});
+    const crit=Math.random()<Math.min(.35,Math.max(0,(Number(actor.character.crit)||0)/100));let damage=Math.max(1,Math.floor(actor.character.atk*skill.mult-target.character.def*.35));if(crit)damage=Math.floor(damage*1.5);target.hp=Math.max(0,target.hp-damage);match.log.push(`${actor.character.name} usa ${skill.name}${crit?' (CRÍTICO)':''} e causa ${damage} de dano.`);
+    if(target.hp<=0){match.finished=true;match.winner=actor.id;match.log.push(`${actor.name} venceu o duelo!`);}else{match.turn++;match.turnPlayer=target.id;}
+    emitPvp(room);reply({ok:true});
   });
   socket.on('room:leave', () => leaveRoom(socket));
   socket.on('disconnect', () => leaveRoom(socket));
