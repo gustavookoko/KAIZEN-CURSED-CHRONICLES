@@ -17,7 +17,7 @@
 3. Execute `npm start`.
 4. Abra `http://localhost:3000`.
 
-O modo sem login salva apenas no navegador. Para contas entre aparelhos, entre no site servido pelo Node (não apenas em um endereço de HTML estático). Em produção, configure um disco persistente para a pasta `data` ou defina `KAIZEN_DATA_DIR` / `KAIZEN_DATA_FILE` para um volume persistente.
+O modo sem login salva apenas no navegador. Para contas entre aparelhos, entre no site servido pelo Node (não apenas em um endereço de HTML estático). Em produção no Render, o sistema de arquivos padrão é efêmero. Para preservar contas, conecte um disco persistente (planos compatíveis) montado em `/var/data` e configure a variável `KAIZEN_DATA_DIR=/var/data`. Antes de mudar o caminho, faça uma cópia de segurança do `data/accounts.json` atualmente usado e copie-a para `/var/data/accounts.json`; não deixe o servidor iniciar com um diretório novo vazio se os saves antigos ainda não tiverem sido copiados. O servidor agora cria até 20 cópias locais anteriores em `backups/` junto ao arquivo de contas e tenta restaurar a cópia mais recente se `accounts.json` desaparecer. Essas cópias ficam no mesmo disco e não substituem um backup externo. O Render documenta discos persistentes em https://render.com/docs/disks. Serviços gratuitos não oferecem discos persistentes.
 
 ## Importante sobre armazenamento e segurança
 - Senhas não são salvas em texto puro; o servidor usa `crypto.scrypt` com salt aleatório.
