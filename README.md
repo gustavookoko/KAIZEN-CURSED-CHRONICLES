@@ -92,3 +92,19 @@ O `package-lock.json` não foi gerado nesta sessão porque o acesso ao registry 
 ## Testes e limites conhecidos
 
 `npm test` usa somente dados sintéticos e valida a ferramenta de migração. Não foi possível testar login real, Socket.IO autenticado, indisponibilidade de PostgreSQL ou restauração porque não foi fornecida uma `DATABASE_URL` de teste (e nenhuma URL secreta deve ser enviada pelo chat). A conta `Kitsune` não foi encontrada em nenhum JSON/backup fornecido, então seu estado não pode ser confirmado nem recuperado a partir destes arquivos.
+
+
+## Alterações desta revisão
+
+- A loja e o treinamento usam os custos de 50, 100 e 300 yens para Energia pequena, média e grande, respectivamente.
+- A tela cheia evita redesenhar a página inteira no evento `fullscreenchange`, reduzindo conflitos com a navegação entre abas.
+- A aba Multiplayer usa Socket.IO para listar/criar salas, aceitar senha opcional, limitar a sala a dois jogadores, controlar prontidão e executar um combate PvP por turnos. O servidor precisa estar publicado com PostgreSQL configurado para que usuários em computadores diferentes se conectem.
+- O atributo `speed` é calculado a partir da raridade como aproximação de rank, com bônus de equipamento; velocidade determina a iniciativa nas missões, nos bosses e no PvP. O projeto não tinha uma tabela independente de ranks/velocidade, então os valores ficam centralizados na função `rankSpeed`.
+
+### Atualizar as contas Kitsune e Heredias
+
+O ZIP não contém o banco PostgreSQL nem o arquivo antigo `data/accounts.json`; por isso não foi possível modificar diretamente os saves reais nesta sessão. Foi adicionado `scripts/apply-requested-account-updates.js`, que procura as duas contas no PostgreSQL configurado e preserva os demais dados. Primeiro rode em modo de simulação: `npm run accounts:update-requested`. Revise a saída; para gravar as alterações, execute `npm run accounts:update-requested -- --apply`. O script informa contas ausentes, atualiza os saldos por acréscimo, define as quantidades solicitadas de personagens e relê os registros para verificar. Faça backup do banco antes de aplicar.
+
+### Limites de verificação
+
+`node --check` foi executado nos arquivos JavaScript e no script inline do HTML; os 8 testes automatizados existentes passaram. Não foi possível testar uma sessão real, o banco, nem uma partida entre dois navegadores porque não foram fornecidas credenciais de banco/ambiente de execução. O PvP implementado aplica HP, dano, velocidade/iniciativa e turnos com as habilidades enviadas pelo cliente; antes de usar publicamente, recomenda-se acrescentar validação de habilidades/estatísticas no servidor a partir de um catálogo confiável e testes de integração com duas contas.
