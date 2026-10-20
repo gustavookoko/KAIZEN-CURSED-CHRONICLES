@@ -1,8 +1,8 @@
 {
   "name": "kaizen-cursed-chronicles-online",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "Base online para Kaizen: Cursed Chronicles",
+  "description": "Kaizen: Cursed Chronicles com contas persistentes e progresso online",
   "main": "server.js",
   "scripts": { "start": "node server.js" },
   "engines": { "node": ">=20" },
