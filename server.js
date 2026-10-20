@@ -187,7 +187,7 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const body = req.body || {};
   const username = typeof body.username === 'string' ? body.username.trim() : body.username;
   const password = body.password;
@@ -211,6 +211,29 @@ app.post('/api/auth/login', (req, res) => {
     console.warn(`[LOGIN] Senha não confere para usuário: ${username}`);
     return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
   }
+  // Recompensa exclusiva da conta Kitsune, aplicada uma única vez no servidor.
+  // Não depende da senha e não altera o progresso de nenhuma outra conta.
+  if (key === 'kitsune' && !account.kitsuneCharacterGrantV1) {
+    const progress = account.progress && typeof account.progress === 'object' && !Array.isArray(account.progress)
+      ? account.progress
+      : {};
+    if (!progress.owned || typeof progress.owned !== 'object' || Array.isArray(progress.owned)) {
+      progress.owned = {};
+    }
+    progress.owned.sukuna15 = { copies: 10, level: 1, xp: 0, cap: 20 };
+    progress.owned.yuta = { copies: 1, level: 14, xp: 0, cap: 20 };
+    progress.owned.gojo_shinjuku = { copies: 2, level: 1, xp: 0, cap: 20 };
+    account.progress = progress;
+    account.kitsuneCharacterGrantV1 = true;
+    account.updatedAt = new Date().toISOString();
+    try {
+      await persistStore();
+    } catch (error) {
+      console.error('Falha ao salvar a recompensa da conta Kitsune:', error.message);
+      return res.status(500).json({ error: 'Não foi possível salvar os personagens agora. Tente entrar novamente.' });
+    }
+  }
+
   const token = issueToken(key);
   console.log(`[LOGIN] Login realizado: ${account.username}`);
   res.json({ ok: true, username: account.username, token, progress: account.progress || {} });
