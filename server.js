@@ -109,7 +109,9 @@ function dailyReward(id, progress) {
     daily_battles: { yen: 2400 + stage * 45, xp: 900 + stage * 25, tokens: 100 + Math.floor(stage / 8), key: 'battleWins', goal: 3 },
     daily_summon: { yen: 1800 + stage * 42, xp: 700 + stage * 22, tokens: 90 + Math.floor(stage / 9), key: 'summons', goal: 1 }
   };
-  return rewards[id] || null;
+  const reward = rewards[id] || null;
+  if (reward) reward.tokens = Math.max(reward.tokens, Math.round(reward.tokens * 1.4));
+  return reward;
 }
 
 app.post('/api/auth/register', async (req, res) => {
