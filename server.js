@@ -15,12 +15,15 @@ const io = new Server(server, { cors: { origin: true, credentials: false } });
 const PORT = Number(process.env.PORT) || 3000;
 const DATA_DIR = process.env.KAIZEN_DATA_DIR || path.join(__dirname, 'data');
 const DATA_FILE = process.env.KAIZEN_DATA_FILE || path.join(DATA_DIR, 'accounts.json');
+const BACKUP_DIR = process.env.KAIZEN_BACKUP_DIR || path.join(path.dirname(DATA_FILE), 'backups');
+const MAX_ACCOUNT_BACKUPS = 20;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const rooms = new Map();
 const sessions = new Map();
 let store = { accounts: {} };
 let writeQueue = Promise.resolve();
+let backupSequence = 0;
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb', strict: true }));
@@ -95,31 +98,100 @@ function accountForRequest(req, res) {
   return account;
 }
 
+async function listAccountBackups() {
+  try {
+    const names = await fsp.readdir(BACKUP_DIR);
+    return names
+      .filter(name => /^accounts-\d{8}T\d{9}Z-\d+\.json\.bak$/.test(name))
+      .sort()
+      .map(name => path.join(BACKUP_DIR, name));
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+async function createAccountBackup() {
+  try {
+    await fsp.access(DATA_FILE, fs.constants.R_OK);
+  } catch (error) {
+    if (error.code === 'ENOENT') return;
+    throw error;
+  }
+
+  await fsp.mkdir(BACKUP_DIR, { recursive: true, mode: 0o700 });
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('.', '').replace('Z', 'Z');
+  const backupPath = path.join(BACKUP_DIR, `accounts-${stamp}-${backupSequence++}.json.bak`);
+  await fsp.copyFile(DATA_FILE, backupPath, fs.constants.COPYFILE_EXCL);
+  await fsp.chmod(backupPath, 0o600);
+
+  const backups = await listAccountBackups();
+  const excess = backups.slice(0, Math.max(0, backups.length - MAX_ACCOUNT_BACKUPS));
+  await Promise.all(excess.map(file => fsp.unlink(file).catch(error => {
+    if (error.code !== 'ENOENT') throw error;
+  })));
+}
+
 async function persistStore() {
   const snapshot = JSON.stringify(store, null, 2);
-  // Serializa gravações para evitar que dois salvamentos concorrentes corrompam o arquivo.
+  // Serializa gravações e cria uma cópia do save anterior antes de substituí-lo.
   writeQueue = writeQueue.catch(() => {}).then(async () => {
     await fsp.mkdir(path.dirname(DATA_FILE), { recursive: true });
+    await createAccountBackup();
     const temp = `${DATA_FILE}.${process.pid}.tmp`;
     await fsp.writeFile(temp, snapshot, { mode: 0o600 });
     await fsp.rename(temp, DATA_FILE);
+    try { await fsp.chmod(DATA_FILE, 0o600); } catch (_) {}
   });
   return writeQueue;
 }
 
 async function loadStore() {
   await fsp.mkdir(path.dirname(DATA_FILE), { recursive: true });
+
+  // Se o arquivo principal sumiu, tenta recuperar a última cópia antes de criar um save vazio.
+  try {
+    await fsp.access(DATA_FILE, fs.constants.R_OK);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    const backups = await listAccountBackups();
+    if (backups.length) {
+      const newest = backups[backups.length - 1];
+      await fsp.copyFile(newest, DATA_FILE);
+      await fsp.chmod(DATA_FILE, 0o600);
+      console.warn(`[STORE] Arquivo principal ausente; restaurado backup: ${path.basename(newest)}`);
+    } else {
+      // Migração automática apenas quando o arquivo antigo ainda está acessível.
+      const legacyFile = path.join(__dirname, 'data', 'accounts.json');
+      if (path.resolve(legacyFile) !== path.resolve(DATA_FILE)) {
+        try {
+          await fsp.access(legacyFile, fs.constants.R_OK);
+          await fsp.copyFile(legacyFile, DATA_FILE, fs.constants.COPYFILE_EXCL);
+          await fsp.chmod(DATA_FILE, 0o600);
+          console.warn(`[STORE] Save antigo copiado para o armazenamento configurado: ${DATA_FILE}`);
+        } catch (copyError) {
+          if (copyError.code !== 'ENOENT' && copyError.code !== 'EEXIST') throw copyError;
+        }
+      }
+    }
+  }
+
   try {
     const parsed = JSON.parse(await fsp.readFile(DATA_FILE, 'utf8'));
     if (parsed && parsed.accounts && typeof parsed.accounts === 'object' && !Array.isArray(parsed.accounts)) {
       store = parsed;
     } else {
-      throw new Error('O arquivo de contas não tem o formato esperado.');
+      throw new Error('O arquivo de contas não tem o formato esperado. Não será substituído por um save vazio.');
     }
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
+    store = { accounts: {} };
     await persistStore();
     console.log(`[STORE] Novo arquivo de contas inicializado em ${DATA_FILE}`);
+  }
+
+  if (process.env.NODE_ENV === 'production' && !process.env.KAIZEN_DATA_DIR && !process.env.KAIZEN_DATA_FILE) {
+    console.warn('[STORE] ATENÇÃO: KAIZEN_DATA_DIR/KAIZEN_DATA_FILE não configurado. Em hospedagens com disco efêmero, contas podem desaparecer após deploy/reinício.');
   }
 }
 
@@ -187,7 +259,7 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', (req, res) => {
   const body = req.body || {};
   const username = typeof body.username === 'string' ? body.username.trim() : body.username;
   const password = body.password;
@@ -211,29 +283,6 @@ app.post('/api/auth/login', async (req, res) => {
     console.warn(`[LOGIN] Senha não confere para usuário: ${username}`);
     return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
   }
-  // Recompensa exclusiva da conta Kitsune, aplicada uma única vez no servidor.
-  // Não depende da senha e não altera o progresso de nenhuma outra conta.
-  if (key === 'kitsune' && !account.kitsuneCharacterGrantV1) {
-    const progress = account.progress && typeof account.progress === 'object' && !Array.isArray(account.progress)
-      ? account.progress
-      : {};
-    if (!progress.owned || typeof progress.owned !== 'object' || Array.isArray(progress.owned)) {
-      progress.owned = {};
-    }
-    progress.owned.sukuna15 = { copies: 10, level: 1, xp: 0, cap: 20 };
-    progress.owned.yuta = { copies: 1, level: 14, xp: 0, cap: 20 };
-    progress.owned.gojo_shinjuku = { copies: 2, level: 1, xp: 0, cap: 20 };
-    account.progress = progress;
-    account.kitsuneCharacterGrantV1 = true;
-    account.updatedAt = new Date().toISOString();
-    try {
-      await persistStore();
-    } catch (error) {
-      console.error('Falha ao salvar a recompensa da conta Kitsune:', error.message);
-      return res.status(500).json({ error: 'Não foi possível salvar os personagens agora. Tente entrar novamente.' });
-    }
-  }
-
   const token = issueToken(key);
   console.log(`[LOGIN] Login realizado: ${account.username}`);
   res.json({ ok: true, username: account.username, token, progress: account.progress || {} });
