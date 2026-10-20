@@ -1,45 +1,27 @@
-# Kaizen: Cursed Chronicles — base online
+# Kaizen: Cursed Chronicles — versão atualizada
 
-Este repositório contém o HTML atual do jogo e uma base Node.js + Socket.IO para conectar dois jogadores pela internet.
-
-## O que já existe nesta base
-- O jogo HTML atual em `public/index.html`.
-- Servidor HTTP compatível com Render (`process.env.PORT`).
-- Endpoint de saúde `/health`.
-- Salas com código de 5 caracteres, limite de 2 jogadores, estado pronto e eventos de sala.
-- Ponte cliente em `public/multiplayer-client.js`.
-
-## Importante: o que ainda NÃO está integrado
-Esta é a base de conexão/salas, não uma implementação completa de PvP. O HTML original foi mantido sem alterações para reduzir o risco de quebrar o jogo. O script `multiplayer-client.js` ainda precisa ser incluído na página e conectado à interface do jogo. As regras reais de turnos, habilidades, dano, vitória/derrota, autenticação e salvamento de progresso ainda precisam ser integradas e validadas. Não envie dados de combate como verdade confiável pelo cliente; a validação final deve acontecer no servidor.
+## O que foi adicionado
+- Tela inicial de conta com modo local, salvar progresso local em nova conta, criar conta, entrar e trocar de conta.
+- API Node/Express com hash de senha via `scrypt`, sessões por token e armazenamento persistente em `data/accounts.json`.
+- Salvamento automático do progresso de contas autenticadas em `/api/progress`.
+- Missões diárias com três objetivos, cronômetro e reset calculado pelo fuso `America/Sao_Paulo`.
+- Endpoint de servidor para impedir resgate repetido da mesma missão diária no mesmo dia por uma conta autenticada.
+- Quinze tipos de equipamentos de campanha, drop de 20% apenas nas missões múltiplas de cinco, escalonamento moderado até a missão 500, equipar/desequipar e vender por Yen.
+- Conversão de cópias extras de personagens em Tokens Kaizen de acordo com a raridade.
+- Tokens da campanha aumentam gradualmente; chefes exigem nível 25 da conta, mas os equipamentos podem ser equipados desde o nível 1.
+- A ponte Socket.IO do multiplayer aceita o token da conta quando há sessão autenticada.
 
 ## Executar localmente
-Requer Node.js 20 ou superior.
+1. Instale Node.js 20 ou superior.
+2. Na pasta do projeto, execute `npm install`.
+3. Execute `npm start`.
+4. Abra `http://localhost:3000`.
 
-```bash
-npm install
-npm start
-```
+O modo sem login salva apenas no navegador. Para contas entre aparelhos, entre no site servido pelo Node (não apenas em um endereço de HTML estático). Em produção, configure um disco persistente para a pasta `data` ou defina `KAIZEN_DATA_DIR` / `KAIZEN_DATA_FILE` para um volume persistente.
 
-Abra `http://localhost:3000`. Verificação: `http://localhost:3000/health`.
-
-## Deploy como serviço Node no Render
-- Tipo: **Web Service**.
-- Build Command: `npm install`.
-- Start Command: `npm start`.
-- Não precisa definir `PORT` manualmente; o Render fornece essa variável.
-
-## Eventos disponíveis no cliente
-Após carregar Socket.IO e `multiplayer-client.js`, a página terá `window.KaizenOnline` com:
-- `createRoom(nome, callback)`
-- `joinRoom(codigo, nome, callback)`
-- `setReady(true|false, callback)`
-- `leaveRoom()`
-
-Eventos de navegador: `kaizen:room-update` e `kaizen:match-ready`.
-
-## Próximas etapas para PvP completo
-1. Ligar os botões de criar/entrar em sala e seleção de personagem à ponte Socket.IO.
-2. Definir e implementar a máquina de estados da batalha por turnos usando as regras existentes no HTML.
-3. Validar personagem, ação, cooldown, dano e turno no servidor.
-4. Adicionar Firebase Authentication e persistência segura de progresso, com regras de acesso apropriadas.
-5. Testar desconexão, reconexão, jogador que sai, empate e estados inválidos.
+## Importante sobre armazenamento e segurança
+- Senhas não são salvas em texto puro; o servidor usa `crypto.scrypt` com salt aleatório.
+- O arquivo `data/accounts.json` é criado automaticamente e está no `.gitignore`. Não faça commit desse arquivo.
+- O sistema atual mantém sessões em memória; após reiniciar o servidor, será necessário entrar novamente. O progresso continua no arquivo persistente.
+- A lógica de combate e a maior parte das recompensas continuam executadas no cliente. Isso é adequado para protótipo, mas não é uma arquitetura anti-cheat completa; um multiplayer competitivo exigirá que o servidor valide as ações e recompensas de batalha.
+- Se o provedor de hospedagem apagar arquivos locais ao reiniciar, configure armazenamento persistente antes de usar contas reais.
