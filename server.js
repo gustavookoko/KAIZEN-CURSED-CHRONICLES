@@ -89,7 +89,10 @@ function dailyReward(id, progress) {
     daily_summon: { yen: 1800 + stage * 42, xp: 700 + stage * 22, tokens: 90 + Math.floor(stage / 9), key: 'summons', goal: 1 }
   };
   const reward = rewards[id] || null;
-  if (reward) reward.tokens = Math.max(reward.tokens, Math.round(reward.tokens * 1.4));
+  if (reward) {
+    reward.yen = Math.round(reward.yen * 2);
+    reward.tokens = Math.max(reward.tokens, Math.round(reward.tokens * 1.4)) * 3;
+  }
   return reward;
 }
 
@@ -313,7 +316,8 @@ function safeRoomCode() {
 }
 function roomSummary(room) { return { code: room.code, name: room.name, mode: room.mode || 'solo', hasPassword: Boolean(room.passwordHash), players: room.players.map(p => ({ id: p.id, name: p.name, ready: p.ready, character: p.character || (p.characters||[])[0] ? ((p.characters||[p.character]).filter(Boolean)[0] ? { id:(p.characters||[p.character]).filter(Boolean)[0].id, name:(p.characters||[p.character]).filter(Boolean)[0].name, speed:(p.characters||[p.character]).filter(Boolean)[0].speed } : null) : null, characters:(p.characters||[p.character]).filter(Boolean).map(c=>({id:c.id,name:c.name,speed:c.speed})) })), started: room.started }; }
 function roomList() { return [...rooms.values()].map(roomSummary); }
-function cleanCharacter(value) { if (!value || typeof value !== 'object') return null; const name=String(value.name||'').replace(/[<>\u0000-\u001f]/g,'').trim().slice(0,60); const skills=Array.isArray(value.skills)?value.skills.slice(0,8).map(sk=>({name:String(sk?.name||'Técnica').replace(/[<>\u0000-\u001f]/g,'').slice(0,60),desc:String(sk?.desc||'').replace(/[<>\u0000-\u001f]/g,'').slice(0,180),mult:Math.max(.1,Math.min(5,Number(sk?.mult)||1)),special:Boolean(sk?.special),all:Boolean(sk?.all)})):[]; if(!name||!skills.length)return null; const hp=Math.max(1,Math.min(100000,Math.floor(Number(value.maxHp||value.hp)||1))); return {id:String(value.id||'').slice(0,50),name,color:['red','blue','green'].includes(value.color)?value.color:'blue',cc:Math.max(0,Math.min(1e9,Number(value.cc)||0)),hp,maxHp:hp,atk:Math.max(1,Math.min(100000,Math.floor(Number(value.atk)||1))),def:Math.max(0,Math.min(100000,Math.floor(Number(value.def)||0))),crit:Math.max(0,Math.min(100,Number(value.crit)||0)),speed:Math.max(1,Math.min(10000,Math.floor(Number(value.speed)||1))),skills}; }
+const RARITY_SKILL_MULTIPLIERS = { 'Comum':[1.8,2.5,2.8], 'Raro':[1.9,2.7,2.9], 'Super Raro':[2.0,2.9,3.1], 'Épico':[2.2,3.2,3.4], 'Mítico':[2.4,3.4,3.7], 'Lendário':[2.6,3.6,4.0], 'Ultra Lendário':[2.7,3.7,4.2] };
+function cleanCharacter(value) { if (!value || typeof value !== 'object') return null; const name=String(value.name||'').replace(/[<>\u0000-\u001f]/g,'').trim().slice(0,60); const rarity=Object.prototype.hasOwnProperty.call(RARITY_SKILL_MULTIPLIERS,String(value.rarity||''))?String(value.rarity):'Comum'; const multipliers=RARITY_SKILL_MULTIPLIERS[rarity]; const skills=Array.isArray(value.skills)?value.skills.slice(0,3).map((sk,index)=>({name:String(sk?.name||'Técnica').replace(/[<>\u0000-\u001f]/g,'').slice(0,60),desc:String(sk?.desc||'').replace(/[<>\u0000-\u001f]/g,'').slice(0,180),mult:multipliers[index]??multipliers[0],special:Boolean(sk?.special),all:Boolean(sk?.all),areaFull:Boolean(sk?.areaFull),ignoreDefPct:Number(sk?.ignoreDefPct)||0,defDownPct:Number(sk?.defDownPct)||0,defDownTurns:Number(sk?.defDownTurns)||0,atkDownPct:Number(sk?.atkDownPct)||0,atkDownTurns:Number(sk?.atkDownTurns)||0,shieldPct:Number(sk?.shieldPct)||0,shieldTurns:Number(sk?.shieldTurns)||0,stunChance:Number(sk?.stunChance)||0,executePct:Number(sk?.executePct)||0,executeThreshold:Number(sk?.executeThreshold)||0,flatAtkBonus:Number(sk?.flatAtkBonus)||0,gojoSetup:Boolean(sk?.gojoSetup),requiresGojoSetup:Boolean(sk?.requiresGojoSetup),setupBonus:Number(sk?.setupBonus)||0,bossSetupBonus:Number(sk?.bossSetupBonus)||0,incomingReduction:Number(sk?.incomingReduction)||0,incomingReductionTurns:Number(sk?.incomingReductionTurns)||0,bossDefDownPct:Number(sk?.bossDefDownPct)||0,bossAtkDownPct:Number(sk?.bossAtkDownPct)||0,allyCombo:Boolean(sk?.allyCombo),allyComboPct:Number(sk?.allyComboPct)||0})):[]; if(!name||!skills.length)return null; const hp=Math.max(1,Math.min(100000,Math.floor(Number(value.maxHp||value.hp)||1))); return {id:String(value.id||'').slice(0,50),name,rarity,color:['red','blue','green'].includes(value.color)?value.color:'blue',cc:Math.max(0,Math.min(1e9,Number(value.cc)||0)),hp,maxHp:hp,atk:Math.max(1,Math.min(100000,Math.floor(Number(value.atk)||1))),def:Math.max(0,Math.min(100000,Math.floor(Number(value.def)||0))),crit:Math.max(0,Math.min(100,Number(value.crit)||0)),speed:Math.max(1,Math.min(10000,Math.floor(Number(value.speed)||1))),skills}; }
 function safePasswordHash(password) { return crypto.createHash('sha256').update(String(password)).digest('hex'); }
 function samePassword(password, hash) { const a=Buffer.from(safePasswordHash(password)); const b=Buffer.from(String(hash||'')); return a.length===b.length && crypto.timingSafeEqual(a,b); }
 function emitRoomList() { io.emit('room:list', { rooms: roomList() }); }
@@ -347,14 +351,14 @@ io.on('connection', socket => {
     if(!name)return reply({ok:false,error:'Informe um nome para a sala.'});
     if(password.length>128)return reply({ok:false,error:'A senha deve ter no máximo 128 caracteres.'});
     leaveRoom(socket); const code = safeRoomCode(); const character=cleanCharacter(payload.character);
-    const room = { code, name, passwordHash:password?safePasswordHash(password):null, started:false, match:null, players:[{id:socket.id,name:cleanName(socket.data.username||payload.playerName||payload.name),ready:false,character}] };
+    const mode=payload.mode==='team'?'team':'solo'; const room = { code, name, mode, passwordHash:password?safePasswordHash(password):null, started:false, match:null, players:[{id:socket.id,name:cleanName(socket.data.username||payload.playerName||payload.name),ready:false,character,characters:payload.characters||[character]}] };
     rooms.set(code,room);socket.join(code);socket.data.roomCode=code;reply({ok:true,room:roomSummary(room)});emitRoom(room);emitRoomList();
   });
   socket.on('room:join', (payload = {}, reply = () => {}) => {
     const code=String(payload.code||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,5);const room=rooms.get(code);
     if(!room)return reply({ok:false,error:'Sala não encontrada.'});if(room.started)return reply({ok:false,error:'A partida já começou.'});if(room.players.length>=2)return reply({ok:false,error:'Sala cheia (máximo de 2 jogadores).' });
     const password=typeof payload.password==='string'?payload.password:'';if(room.passwordHash&&!samePassword(password,room.passwordHash))return reply({ok:false,error:'Senha incorreta.'});
-    leaveRoom(socket);const character=cleanCharacter(payload.character);room.players.push({id:socket.id,name:cleanName(socket.data.username||payload.playerName||'Jogador'),ready:false,character});socket.join(code);socket.data.roomCode=code;reply({ok:true,room:roomSummary(room)});emitRoom(room);emitRoomList();
+    leaveRoom(socket);const character=cleanCharacter(payload.character);room.players.push({id:socket.id,name:cleanName(socket.data.username||payload.playerName||'Jogador'),ready:false,character,characters:payload.characters||[character]});socket.join(code);socket.data.roomCode=code;reply({ok:true,room:roomSummary(room)});emitRoom(room);emitRoomList();
   });
   socket.on('room:ready', (payload = {}, reply = () => {}) => {
     const room=rooms.get(socket.data.roomCode);if(!room)return reply({ok:false,error:'Entre em uma sala primeiro.'});if(room.started)return reply({ok:false,error:'A partida já começou.'});
@@ -362,21 +366,102 @@ io.on('connection', socket => {
     if(payload.ready){const raw=Array.isArray(payload.characters)?payload.characters:[payload.character];const limit=room.mode==='team'?3:1;const characters=[];const seen=new Set();for(const item of raw.slice(0,limit)){const c=cleanCharacter(item);if(c&&!seen.has(c.id)){seen.add(c.id);characters.push(c);}}if(!characters.length)return reply({ok:false,error:'Selecione ao menos um personagem válido.'});if(room.mode==='team'&&characters.length<2)return reply({ok:false,error:'No PvP em equipe, selecione pelo menos dois personagens.'});player.characters=characters;player.character=characters[0];player.ready=true;}else{player.ready=false;room.match=null;}
     emitRoom(room);
     if(room.players.length===2&&room.players.every(p=>p.ready&&p.character)){
-      room.started=true;const players=room.players.map(p=>({...p,hp:p.character.maxHp,maxHp:p.character.maxHp}));
-      const first=players[0].character.speed===players[1].character.speed?(Math.random()<.5?players[0]:players[1]):players.slice().sort((a,b)=>b.character.speed-a.character.speed)[0];
-      room.match={roomCode:room.code,turn:1,turnPlayer:first.id,players,finished:false,log:[`${first.character.name} tem maior velocidade e começa atacando.`]};
+      room.started=true;
+      const players=room.players.map(p=>{
+        const source=room.mode==='team'?(p.characters||[p.character]).slice(0,3):[p.character];
+        const fighters=source.map((c,i)=>({...c,hp:c.maxHp,maxHp:c.maxHp,teamIndex:i,guard:false,skipTurns:0,defDownTurns:0,atkDownTurns:0,gojoSetupTurns:0,sukunaMarkTurns:0,shieldHp:0,shieldTurns:0,incomingReductionTurns:0,basicStacks:0,precisionStacks:0}));
+        return {...p,fighters,activeIndex:0,character:fighters[0],hp:fighters[0].hp,maxHp:fighters[0].maxHp};
+      });
+      const speed=p=>p.character.speed;
+      const first=speed(players[0])===speed(players[1])?(Math.random()<.5?players[0]:players[1]):players.slice().sort((a,b)=>speed(b)-speed(a))[0];
+      room.match={roomCode:room.code,mode:room.mode||'solo',turn:1,turnPlayer:first.id,players,finished:false,log:[`${first.character.name} tem maior velocidade e começa atacando.`,...(room.mode==='team'?['PvP em equipe: ataques de alvo geral atingem todos os personagens inimigos vivos.']:[])]};
       io.to(room.code).emit('match:ready',{room:roomSummary(room),match:room.match,message:'Os dois jogadores estão prontos. O personagem mais rápido começa.'});emitPvp(room);emitRoomList();
     }
     reply({ok:true});
   });
   socket.on('pvp:action',(payload={},reply=()=>{})=>{
-    const room=rooms.get(socket.data.roomCode),match=room&&room.match;if(!room||!room.started||!match||match.finished)return reply({ok:false,error:'Não existe um combate ativo.'});
+    const room=rooms.get(socket.data.roomCode),match=room&&room.match;
+    if(!room||!room.started||!match||match.finished)return reply({ok:false,error:'Não existe um combate ativo.'});
     if(match.turnPlayer!==socket.id)return reply({ok:false,error:'Ainda não é seu turno.'});
-    const actor=match.players.find(p=>p.id===socket.id),target=match.players.find(p=>p.id!==socket.id);const index=Math.floor(Number(payload.skillIndex));const skill=actor?.character?.skills?.[index];
-    if(!actor||!target||!skill||actor.hp<=0||target.hp<=0)return reply({ok:false,error:'Ação ou personagem inválido.'});
-    const crit=Math.random()<Math.min(.35,Math.max(0,(Number(actor.character.crit)||0)/100));let damage=Math.max(1,Math.floor(actor.character.atk*skill.mult-target.character.def*.35));const colorAdvantage=(actor.character.color==='red'&&target.character.color==='blue')||(actor.character.color==='blue'&&target.character.color==='green')||(actor.character.color==='green'&&target.character.color==='red');if(colorAdvantage)damage=Math.floor(damage*1.10);if(crit)damage=Math.floor(damage*1.5);target.hp=Math.max(0,target.hp-damage);match.log.push(`${actor.character.name} usa ${skill.name}${colorAdvantage?' (vantagem de cor +10%)':''}${crit?' (CRÍTICO)':''} e causa ${damage} de dano.`);
-    if(target.hp<=0){match.finished=true;match.winner=actor.id;match.log.push(`${actor.name} venceu o duelo!`);}else{match.turn++;match.turnPlayer=target.id;}
-    emitPvp(room);reply({ok:true});
+    const actor=match.players.find(p=>p.id===socket.id),enemy=match.players.find(p=>p.id!==socket.id);
+    if(!actor||!enemy)return reply({ok:false,error:'Jogador não encontrado.'});
+    if(room.mode==='team'&&Array.isArray(actor.fighters)){const chosen=Math.max(0,Math.floor(Number(payload.actorIndex)||0));if(actor.fighters[chosen]&&actor.fighters[chosen].hp>0){actor.activeIndex=chosen;actor.character=actor.fighters[chosen];actor.hp=actor.character.hp;actor.maxHp=actor.character.maxHp;}}
+    const ac=actor.character,index=Math.floor(Number(payload.skillIndex)),isBasic=index===98;
+    const skill=isBasic?{name:'Ataque Básico',mult:1.5,targetMode:'single'}:ac?.skills?.[index];
+    const living=arr=>(arr||[]).filter(f=>f&&f.hp>0);
+    const enemyFighters=room.mode==='team'?living(enemy.fighters):[enemy.character].filter(c=>c&&enemy.hp>0);
+    if(!ac||actor.hp<=0||!skill||!enemyFighters.length)return reply({ok:false,error:'Ação ou personagem inválido.'});
+    const isAll=!isBasic&&(skill.all===true||skill.areaFull===true||skill.targetMode==='all'||skill.targetType==='all');
+    let targets;
+    if(isAll) targets=enemyFighters;
+    else {
+      const wanted=Math.max(0,Math.floor(Number(payload.targetIndex)||0));
+      const target=(room.mode==='team'?enemy.fighters:enemyFighters)[wanted];
+      targets=[target&&target.hp>0?target:enemyFighters[0]].filter(Boolean);
+    }
+    ac.basicStacks=Math.max(0,Number(ac.basicStacks)||0);ac.precisionStacks=Math.max(0,Number(ac.precisionStacks)||0);
+    let bonusPct=0;
+    if(isBasic){
+      if(ac.id==='yuji_modulo'&&ac.basicStacks>=3){bonusPct+=.30;ac.basicStacks=0;match.log.push('Instinto de Combate: 3 cargas consumidas, +30% neste ataque básico.');}
+      else if(ac.id==='yuji_modulo')ac.basicStacks=Math.min(3,ac.basicStacks+1);
+      if(ac.id==='gojo_shinjuku'){ac.precisionStacks=Math.min(2,ac.precisionStacks+1);match.log.push('Infinito Calculado: Precisão '+ac.precisionStacks+'/2.');}
+      if(ac.id==='dabura_karaba')ac.basicStacks=Math.min(3,ac.basicStacks+1);
+      if(ac.id==='sukuna_megumi')for(const tc of targets){tc.sukunaMarkTurns=3;match.log.push('Marca de Desmantelamento aplicada em '+tc.name+' por 3 turnos.');}
+    } else {
+      if(ac.id==='gojo_shinjuku'&&ac.precisionStacks>0){bonusPct+=.10;ac.precisionStacks=0;match.log.push('Infinito Calculado: +10% na técnica; Precisão consumida.');}
+      if(ac.id==='dabura_karaba'&&ac.basicStacks>0){bonusPct+=Math.min(3,ac.basicStacks)*.05;ac.basicStacks=0;match.log.push('Instinto de Duelo: cargas consumidas pela técnica.');}
+      if(ac.techChargeBonus){bonusPct+=ac.techChargeBonus;ac.techChargeBonus=0;}
+    }
+    let totalDamage=0;
+    for(const tc of targets){
+      if(!tc||tc.hp<=0)continue;
+      let targetBonus=bonusPct;
+      if(!isBasic&&skill.executePct&&tc.hp/Math.max(1,tc.maxHp)<=skill.executeThreshold)targetBonus+=skill.executePct;
+      if(ac.id==='gojo_shinjuku'&&skill.requiresGojoSetup&&(tc.gojoSetupTurns||0)>0)targetBonus+=(tc.isBoss?.10:.20);
+      
+      const crit=Math.random()<Math.min(.35,Math.max(0,(Number(ac.crit)||0)/100));
+      const defense=(Number(tc.def)||0)*(1-(isBasic?0:(skill.ignoreDefPct||0)))*(1-((tc.defDownTurns||0)>0?(tc.defDownPct||0):0));
+      let damage=Math.max(1,Math.floor(ac.atk*skill.mult*(1+targetBonus)-defense*.35));
+      if(!isBasic&&skill.flatAtkBonus)damage+=Math.floor(ac.atk*skill.flatAtkBonus);
+      const colorAdvantage=(ac.color==='red'&&tc.color==='blue')||(ac.color==='blue'&&tc.color==='green')||(ac.color==='green'&&tc.color==='red');
+      if(colorAdvantage)damage=Math.floor(damage*1.10);
+      if(ac.id==='sukuna_megumi'&&(tc.sukunaMarkTurns||0)>0&&!isBasic)damage=Math.floor(damage*1.08);
+      if(crit)damage=Math.floor(damage*1.5);
+      if((tc.shieldHp||0)>0&&(tc.shieldTurns||0)>0){const absorbed=Math.min(tc.shieldHp,damage);tc.shieldHp-=absorbed;damage-=absorbed;if(absorbed)match.log.push(`${tc.name}: escudo absorve ${absorbed} de dano.`);}
+      damage=Math.max(0,Math.floor(damage*(1-((ac.atkDownTurns||0)>0?(ac.atkDownPct||0):0))*(1-((tc.incomingReductionTurns||0)>0?(tc.incomingReductionPct||0):0))));
+      tc.hp=Math.max(0,tc.hp-damage);totalDamage+=damage;
+      match.log.push(`${ac.name} usa ${isBasic?'Ataque Básico':skill.name} em ${tc.name}${isAll?' (ALVO GERAL)':' (ALVO ÚNICO)'}${colorAdvantage?' (vantagem de cor +10%)':''}${crit?' (CRÍTICO)':''} e causa ${damage} de dano.`);
+      if(!isBasic){
+        if(skill.defDownPct){tc.defDownPct=skill.defDownPct;tc.defDownTurns=skill.defDownTurns||2;match.log.push(`${tc.name}: defesa reduzida em ${Math.round(tc.defDownPct*100)}%.`);}
+        if(skill.atkDownPct){tc.atkDownPct=skill.atkDownPct;tc.atkDownTurns=skill.atkDownTurns||1;match.log.push(`${tc.name}: ataque reduzido em ${Math.round(tc.atkDownPct*100)}%.`);}
+        if(skill.gojoSetup)tc.gojoSetupTurns=skill.defDownTurns||2;
+        if(skill.shieldPct){ac.shieldHp=Math.max(Number(ac.shieldHp)||0,Math.floor(ac.maxHp*skill.shieldPct));ac.shieldTurns=skill.shieldTurns||2;match.log.push('Agito concede escudo de '+ac.shieldHp+' HP.');}
+        if(skill.incomingReduction){ac.incomingReductionPct=skill.incomingReduction;ac.incomingReductionTurns=skill.incomingReductionTurns||2;}
+        if(skill.stunChance&&Math.random()<skill.stunChance){tc.skipTurns=1;match.log.push(`${tc.name} foi paralisado por 1 turno!`);}
+      }
+      // Passivas aprovadas: efeitos ligados ao personagem, não ao texto da descrição.
+      if(ac.id==='yuji_modulo'&&!isBasic&&skill.allyCombo&&room.mode==='team'){
+        const combo=tc.lastAttackerPlayerId===actor.id&&tc.lastAttackerCharacterId!==ac.id&&tc.lastHitTurn>=Math.max(0,match.turn-2);
+        if(combo){const extra=Math.floor(damage*(skill.allyComboPct||.15));tc.hp=Math.max(0,tc.hp-extra);totalDamage+=extra;match.log.push('Quebra-Formação: aliado preparou o alvo; dano adicional '+extra+'.');}
+      }
+      if(tc.hp<=0)match.log.push(`${tc.name} foi derrotado.`);
+      if(!isBasic&&tc.hp>0&&tc.skipTurns>0){} 
+      if(tc.defDownTurns>0)tc.defDownTurns--;if(tc.atkDownTurns>0)tc.atkDownTurns--;if(tc.gojoSetupTurns>0)tc.gojoSetupTurns--;if(tc.sukunaMarkTurns>0)tc.sukunaMarkTurns--;
+      tc.lastTargetId=ac.id;tc.lastAttackerPlayerId=actor.id;tc.lastAttackerCharacterId=ac.id;tc.lastHitTurn=match.turn;
+    }
+    // Passiva de Yuji: carga é gerada ao atacar; o terceiro acerto fortalece o próximo básico.
+    if(ac.id==='yuji_modulo'&&isBasic&&ac.basicStacks>0)match.log.push('Instinto de Combate: Adrenalina '+ac.basicStacks+'/3.');
+    if(actor.shieldTurns>0)actor.shieldTurns--;if(actor.shieldTurns===0){actor.shieldHp=0;}
+    if(actor.incomingReductionTurns>0)actor.incomingReductionTurns--;
+    if(room.mode!=='team'){enemy.hp=enemy.character.hp;enemy.maxHp=enemy.character.maxHp;}
+    const enemyAlive=living(enemy.fighters||[enemy.character]);
+    if(room.mode==='team'){
+      if(enemyAlive.length===0){match.finished=true;match.winner=actor.id;match.log.push(`${actor.name} venceu o PvP em equipe!`);}
+      else {const next=enemyAlive.findIndex(f=>f.hp>0);enemy.activeIndex=next<0?0:(enemy.fighters||[]).indexOf(enemyAlive[0]);enemy.character=enemy.fighters[enemy.activeIndex]||enemyAlive[0];enemy.hp=enemy.character.hp;enemy.maxHp=enemy.character.maxHp;}
+      actor.character=actor.fighters[actor.activeIndex]||ac;actor.hp=actor.character.hp;actor.maxHp=actor.character.maxHp;
+    } else if(targets[0].hp<=0){match.finished=true;match.winner=actor.id;match.log.push(`${actor.name} venceu o duelo!`);}
+    if(!match.finished){match.turn++;match.turnPlayer=enemy.id;const activeEnemy=enemy.character;if((activeEnemy.skipTurns||0)>0){activeEnemy.skipTurns--;match.log.push(`${activeEnemy.name} perde o turno por paralisia.`);match.turn++;match.turnPlayer=actor.id;}}
+    emitPvp(room);reply({ok:true,damage:totalDamage,targetMode:isAll?'all':'single'});
   });
   socket.on('room:leave', () => leaveRoom(socket));
   socket.on('disconnect', () => leaveRoom(socket));
